@@ -12,6 +12,7 @@ public final class NewTransferViewModel: ObservableObject {
     @Published public var scannedRootItem: DriveItem? = nil
     @Published public var selectedCategory: MediaCategory = .all
     @Published public var searchText: String = ""
+    @Published public var showingSelectionFilterSheet: Bool = false
 
     public init() {}
 
@@ -345,6 +346,24 @@ public struct NewTransferSheet: View {
                                 Spacer()
 
                                 Button {
+                                    vm.showingSelectionFilterSheet = true
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "checklist.checked")
+                                        Text("Paste Selection List")
+                                    }
+                                    .font(.system(size: 11, weight: .bold))
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 4)
+                                    .background(ProTheme.accent.opacity(0.18))
+                                    .foregroundColor(ProTheme.accent)
+                                    .cornerRadius(5)
+                                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(ProTheme.accent.opacity(0.4), lineWidth: 1))
+                                }
+                                .buttonStyle(.plain)
+                                .help("Filter files by photo numbers like 8024, 8025 or full filenames")
+
+                                Button {
                                     vm.scanGoogleDrive()
                                 } label: {
                                     HStack(spacing: 4) {
@@ -426,5 +445,8 @@ public struct NewTransferSheet: View {
         }
         .frame(width: 680, height: 600)
         .background(ProTheme.bgDarkest)
+        .sheet(isPresented: $vm.showingSelectionFilterSheet) {
+            SelectionFilterSheet(rootItem: $vm.scannedRootItem)
+        }
     }
 }

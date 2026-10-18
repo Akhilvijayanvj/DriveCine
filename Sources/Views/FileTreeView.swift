@@ -1,9 +1,15 @@
 import SwiftUI
 
+public final class TreeViewState: ObservableObject {
+    @Published public var showingSelectionFilterSheet: Bool = false
+    public init() {}
+}
+
 public struct FileTreeView: View {
     @Binding public var rootItem: DriveItem?
     @Binding public var selectedCategory: MediaCategory
     @Binding public var searchText: String
+    @StateObject private var treeState = TreeViewState()
 
     public init(
         rootItem: Binding<DriveItem?>,
@@ -29,11 +35,11 @@ public struct FileTreeView: View {
                             } label: {
                                 Text(cat.rawValue)
                                     .font(.system(size: 11, weight: selectedCategory == cat ? .bold : .medium))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
                                     .foregroundColor(selectedCategory == cat ? Color.black : ProTheme.textSecondary)
                                     .background(selectedCategory == cat ? ProTheme.accent : ProTheme.bgSurface)
-                                    .cornerRadius(6)
+                                    .cornerRadius(5)
                             }
                             .buttonStyle(.plain)
                         }
@@ -42,14 +48,34 @@ public struct FileTreeView: View {
 
                 Spacer()
 
-                // Search field
-                HStack(spacing: 6) {
+                // Paste Selection List Button (Key Feature for Photographers)
+                Button {
+                    treeState.showingSelectionFilterSheet = true
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "checklist.checked")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("Paste Selection List")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(ProTheme.accent.opacity(0.18))
+                    .foregroundColor(ProTheme.accent)
+                    .cornerRadius(5)
+                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(ProTheme.accent.opacity(0.4), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .help("Paste numbers like 8024, 8025 or full filenames from client lists")
+
+                // Search field (supports comma-separated queries like '8024, 8025')
+                HStack(spacing: 5) {
                     Image(systemName: "magnifyingglass")
                         .foregroundColor(ProTheme.textMuted)
                         .font(.system(size: 11))
-                    TextField("Search footage...", text: $searchText)
+                    TextField("Search or 8024, 8025...", text: $searchText)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 12))
+                        .font(.system(size: 11))
                         .foregroundColor(ProTheme.textPrimary)
                     if !searchText.isEmpty {
                         Button {
@@ -65,12 +91,34 @@ public struct FileTreeView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(ProTheme.bgDarkest)
-                .cornerRadius(6)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(ProTheme.borderSubtle, lineWidth: 1))
-                .frame(width: 180)
+                .cornerRadius(5)
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(ProTheme.borderSubtle, lineWidth: 1))
+                .frame(width: 170)
+
+                // Quick Select All / None toggles
+                HStack(spacing: 2) {
+                    Button("All") { setAllSelection(selected: true) }
+                        .font(.system(size: 10, weight: .medium))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 3)
+                        .foregroundColor(ProTheme.textSecondary)
+
+                    Text("|")
+                        .font(.system(size: 10))
+                        .foregroundColor(ProTheme.border)
+
+                    Button("None") { setAllSelection(selected: false) }
+                        .font(.system(size: 10, weight: .medium))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 3)
+                        .foregroundColor(ProTheme.textSecondary)
+                }
+                .background(ProTheme.bgSurface)
+                .cornerRadius(4)
+                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
             .background(ProTheme.bgDark)
 
             Divider().background(ProTheme.borderSubtle)
@@ -98,6 +146,24 @@ public struct FileTreeView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .sheet(isPresented: $treeState.showingSelectionFilterSheet) {
+            SelectionFilterSheet(rootItem: $rootItem)
+        }
+    }
+
+    private func setAllSelection(selected: Bool) {
+        guard var root = rootItem else { return }
+        func update(item: inout DriveItem) {
+            item.isSelected = selected
+            if var children = item.children {
+                for i in 0..<children.count {
+                    update(item: &children[i])
+                }
+                item.children = children
+            }
+        }
+        update(item: &root)
+        self.rootItem = root
     }
 
     private func applyFilter(cat: MediaCategory) {
@@ -194,12 +260,21 @@ public struct DriveItemRow: View {
 
     private var isVisible: Bool {
         if !searchText.isEmpty {
-            if item.name.localizedCaseInsensitiveContains(searchText) { return true }
-            if item.isFolder {
-                let flat = item.flattenFiles()
-                return flat.contains { $0.name.localizedCaseInsensitiveContains(searchText) }
+            let tokens = SelectionMatcher.parseTokens(from: searchText)
+            if !tokens.isEmpty {
+                if item.isFolder {
+                    let flat = item.flattenFiles()
+                    return flat.contains { file in
+                        tokens.contains { token in
+                            SelectionMatcher.matches(fileName: file.name, token: token, mode: .smartNumber)
+                        }
+                    }
+                } else {
+                    return tokens.contains { token in
+                        SelectionMatcher.matches(fileName: item.name, token: token, mode: .smartNumber)
+                    }
+                }
             }
-            return false
         }
 
         if filterCategory == .all { return true }
