@@ -131,8 +131,8 @@ public final class OAuthManager: ObservableObject {
             return
         }
 
-        let port = self.redirectPort
-        let redirectUri = "http://127.0.0.1:\(port)"
+        let port = self.findAvailablePort(start: self.redirectPort)
+        let redirectUri = "http://localhost:\(port)"
 
         // Scopes for Google Drive read & download access
         let scopes = "https://www.googleapis.com/auth/drive.readonly email"
@@ -235,6 +235,29 @@ public final class OAuthManager: ObservableObject {
         return try JSONDecoder().decode(TokenResponse.self, from: data)
     }
 
+    private func findAvailablePort(start: UInt16 = 8085) -> UInt16 {
+        for p in start..<(start + 25) {
+            let sock = socket(AF_INET, SOCK_STREAM, 0)
+            guard sock >= 0 else { continue }
+            var reuse: Int32 = 1
+            setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+            var addr = sockaddr_in()
+            addr.sin_family = sa_family_t(AF_INET)
+            addr.sin_port = p.bigEndian
+            addr.sin_addr.s_addr = in_addr_t(0)
+            let res = withUnsafePointer(to: &addr) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    bind(sock, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+            close(sock)
+            if res == 0 {
+                return p
+            }
+        }
+        return start
+    }
+
     // MARK: - Loopback Socket Listener
 
     private nonisolated func listenForAuthorizationCode(port: UInt16) throws -> String {
@@ -250,7 +273,7 @@ public final class OAuthManager: ObservableObject {
         var addr = sockaddr_in()
         addr.sin_family = sa_family_t(AF_INET)
         addr.sin_port = port.bigEndian
-        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        addr.sin_addr.s_addr = in_addr_t(0)
 
         let bindRes = withUnsafePointer(to: &addr) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
